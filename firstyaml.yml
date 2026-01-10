@@ -1,0 +1,79 @@
+trigger:
+  branches:
+    include:
+    - none
+pool:
+  vmImage: ubuntu-latest
+stages:
+- stage: Build
+  displayName: "Build Artifact"
+  jobs:
+  - job: InfranArtifactBuild
+    steps:
+    - task: TerraformInstaller@1
+      inputs:
+        terraformVersion: 1.14.2
+    - task: TerraformTaskV2@2
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: '$(build.sourcesdirectory)/env'
+        backendServiceArm: 'Azure subscription 1(70df70bd-3b9c-4590-959b-ba5f3434cf90)'
+        backendAzureRmResourceGroupName: 'devops'
+        backendAzureRmStorageAccountName: 'storagefordevopsjsproj'
+        backendAzureRmContainerName: 'nodejs'
+        backendAzureRmKey: 'terraform.tfstate'
+    - task: TerraformTaskV2@2
+      inputs:
+        provider: 'azurerm'
+        command: 'apply'
+        workingDirectory: '$(build.sourcesdirectory)/env'
+        commandOptions: '--auto-approve'
+        environmentServiceNameAzureRM: 'Azure subscription 1(70df70bd-3b9c-4590-959b-ba5f3434cf90)'
+    - task: NodeTool@0
+      inputs:
+        versionSource: 'spec'
+        versionSpec: '20.x'
+    - task: CmdLine@2
+      inputs:
+        script: |
+          cd $(build.sourcesdirectory)
+          npm install -g @angular/cli
+          npm install
+          ng build
+        workingDirectory: $(build.sourcesdirectory)
+    - task: ArchiveFiles@2
+      inputs:
+        rootFolderOrFile: '$(build.sourcesdirectory)/dist/angular-conduit'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/sinpawe.zip'
+        replaceExistingArchive: true
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
+- stage: Deploy
+  displayName: "Deploy Artifact"
+  dependsOn:
+  - Build
+  condition: succeeded()
+  jobs:
+  - deployment: ArtifactDeployment
+    displayName: 'deploy to webapp'
+    environment:
+      name: 'nextopsajwat19'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebApp@1
+            inputs:
+              azureSubscription: 'Azure subscription 1(70df70bd-3b9c-4590-959b-ba5f3434cf90)'
+              appType: 'webAppLinux'
+              appName: 'nextopsajwat19'
+              package: '$(Pipeline.Workspace)/drop/sinpawe.zip'
+              runtimeStack: 'NODE|18-lts'
+              startUpCommand: 'pm2 serve /home/site/wwwroot/browser --no-daemon --sap'
+
